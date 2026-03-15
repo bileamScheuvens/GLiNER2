@@ -514,6 +514,7 @@ class GLiNER2Trainer:
             train_data: TrainDataInput = None,
             eval_data: TrainDataInput = None,
             compute_metrics: Optional[Callable] = None,
+            wandb_run = None,
     ):
         self.model = model
         self.config = config
@@ -540,7 +541,7 @@ class GLiNER2Trainer:
         self.optimizer = None
         self.scheduler = None
         self.scaler = None
-        self.wandb_run = None
+        self.wandb_run = wandb_run if wandb_run else None
         self.progress_bar = None
         
         # LoRA state
