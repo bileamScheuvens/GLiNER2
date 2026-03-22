@@ -177,6 +177,7 @@ class Extractor(PreTrainedModel):
 
         # Encode batch through transformer
         all_token_embs, all_schema_embs = self._encode_batch(batch)
+        
 
         # Compute losses for each sample
         cls_losses = []
@@ -307,7 +308,8 @@ class Extractor(PreTrainedModel):
             embs_per_schema: List[List[torch.Tensor]],
             task_types: List[str],
             structure_labels: List[Any],
-            device: torch.device
+            device: torch.device,
+            weight: int = 1,
     ) -> Dict[str, torch.Tensor]:
         """
         Compute all losses for a single sample.
@@ -318,6 +320,7 @@ class Extractor(PreTrainedModel):
             task_types: Task type for each schema
             structure_labels: Labels for each schema
             device: Computation device
+            weight: loss weight for sample
 
         Returns:
             Dict with classification, structure, and count losses
@@ -377,9 +380,9 @@ class Extractor(PreTrainedModel):
             count_loss = F.cross_entropy(self.count_pred(p_embs), counts, reduction="sum")
 
         return {
-            "classification": cls_loss,
-            "structure": struct_loss,
-            "count": count_loss
+            "classification": cls_loss * weight,
+            "structure": struct_loss * weight,
+            "count": count_loss * weight
         }
 
     # =========================================================================

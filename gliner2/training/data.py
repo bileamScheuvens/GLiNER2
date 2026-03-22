@@ -649,6 +649,7 @@ class InputExample:
     classifications: Optional[List[Classification]] = None
     structures: Optional[List[Structure]] = None
     relations: Optional[List[Relation]] = None
+    loss_weight: int = 1
 
     def __post_init__(self):
         if self.entities is None:

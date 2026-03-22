@@ -32,6 +32,7 @@ class TransformedRecord:
     text: str
     schema: Dict[str, Any]
     num_schemas: int = field(init=False)
+    loss_weight: int = 1
 
     def __post_init__(self):
         self.num_schemas = len(self.schema_tokens_list)
@@ -53,6 +54,7 @@ class PreprocessedBatch:
     end_mappings: List[List[int]]  # Char position end mappings
     original_texts: List[str]  # For result formatting
     original_schemas: List[Dict]  # For result formatting
+    loss_weights: List[int] # Individual loss weights per sample
 
     def to(self, device: torch.device) -> 'PreprocessedBatch':
         """Move tensors to device."""
@@ -70,6 +72,7 @@ class PreprocessedBatch:
             end_mappings=self.end_mappings,
             original_texts=self.original_texts,
             original_schemas=self.original_schemas,
+            loss_weights=self.loss_weights,
         )
 
     def pin_memory(self) -> 'PreprocessedBatch':
@@ -88,6 +91,7 @@ class PreprocessedBatch:
             end_mappings=self.end_mappings,
             original_texts=self.original_texts,
             original_schemas=self.original_schemas,
+            loss_weights=self.loss_weights,
         )
 
     def __contains__(self, key: str) -> bool:
@@ -379,6 +383,7 @@ class SchemaTransformer:
             end_token_idx=end_idx_map,
             text=text,
             schema=original_schema,  # Use original schema with choice info preserved
+            loss_weight=record["loss_weight"] if "loss_weight" in record else 1
         )
 
     def _pad_batch(
@@ -417,6 +422,7 @@ class SchemaTransformer:
             end_mappings=[r.end_token_idx for r in records],
             original_texts=[r.text for r in records],
             original_schemas=[r.schema for r in records],
+            loss_weights=[r.loss_weight for r in records]
         )
 
     def _empty_batch(self) -> PreprocessedBatch:
@@ -435,6 +441,7 @@ class SchemaTransformer:
             end_mappings=[],
             original_texts=[],
             original_schemas=[],
+            loss_weights=[],
         )
 
     def _create_fallback_record(self, text: str, schema: Dict) -> TransformedRecord:
