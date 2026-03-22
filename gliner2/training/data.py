@@ -882,7 +882,7 @@ class InputExample:
                 output["json_descriptions"] = all_descriptions
         if self.relations:
             output["relations"] = [rel.to_dict() for rel in self.relations]
-        return {"input": self.text, "output": output}
+        return {"input": self.text, "output": output, "loss_weight": self.loss_weight}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False)
