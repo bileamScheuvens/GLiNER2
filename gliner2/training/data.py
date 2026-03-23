@@ -934,7 +934,8 @@ class InputExample:
             entity_descriptions=entity_descriptions,
             classifications=classifications if classifications else None,
             structures=structures if structures else None,
-            relations=relations if relations else None
+            relations=relations if relations else None,
+            loss_weight=data.get("loss_weight", 1.0)
         )
 
     @classmethod
