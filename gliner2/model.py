@@ -193,7 +193,8 @@ class Extractor(PreTrainedModel):
                     embs_per_schema=all_schema_embs[i],
                     task_types=batch.task_types[i],
                     structure_labels=batch.structure_labels[i],
-                    device=device
+                    device=device,
+                    weight=batch.loss_weights[i]
                 )
 
                 cls_losses.append(sample_losses["classification"])
@@ -309,7 +310,7 @@ class Extractor(PreTrainedModel):
             task_types: List[str],
             structure_labels: List[Any],
             device: torch.device,
-            weight: int = 1,
+            weight: float = 1.0,
     ) -> Dict[str, torch.Tensor]:
         """
         Compute all losses for a single sample.

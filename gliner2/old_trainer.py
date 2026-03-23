@@ -56,7 +56,7 @@ class ExtractorDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple:
         """Return (text, schema) tuple."""
         record = self.data[idx]
-        return record["input"], record["output"]
+        return record["input"], record["output"], record["loss_weight"]
 
 
 # =============================================================================
@@ -83,7 +83,7 @@ class ExtractorDataCollator:
         Collate batch of (text, schema) tuples into PreprocessedBatch.
 
         Args:
-            batch: List of (text, schema) tuples from dataset
+            batch: List of (text, schema, loss_weight) tuples from dataset
 
         Returns:
             PreprocessedBatch ready for model.forward()

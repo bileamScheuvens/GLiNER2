@@ -379,12 +379,12 @@ class ExtractorCollator:
         self.processor = processor
         self.is_training = is_training
 
-    def __call__(self, batch: List[Tuple[str, Dict]]):
+    def __call__(self, batch: List[Tuple[str, Dict, float]]):
         """
         Convert batch of (text, schema) tuples to PreprocessedBatch.
         
         Args:
-            batch: List of (text, schema) tuples from dataset
+            batch: List of (text, schema, loss_weight) tuples from dataset
             
         Returns:
             PreprocessedBatch ready for model.forward()

@@ -32,7 +32,7 @@ class TransformedRecord:
     text: str
     schema: Dict[str, Any]
     num_schemas: int = field(init=False)
-    loss_weight: int = 1
+    loss_weight: float = 1.0
 
     def __post_init__(self):
         self.num_schemas = len(self.schema_tokens_list)
@@ -54,7 +54,7 @@ class PreprocessedBatch:
     end_mappings: List[List[int]]  # Char position end mappings
     original_texts: List[str]  # For result formatting
     original_schemas: List[Dict]  # For result formatting
-    loss_weights: List[int] # Individual loss weights per sample
+    loss_weights: List[float] # Individual loss weights per sample
 
     def to(self, device: torch.device) -> 'PreprocessedBatch':
         """Move tensors to device."""
@@ -235,7 +235,7 @@ class SchemaTransformer:
 
     def collate_fn_train(
             self,
-            batch: List[Tuple[str, Dict]]
+            batch: List[Tuple[str, Dict, float]]
     ) -> PreprocessedBatch:
         """
         Collate function for training DataLoader.
@@ -250,7 +250,7 @@ class SchemaTransformer:
             )
 
         Args:
-            batch: List of (text, schema) tuples from dataset
+            batch: List of (text, schema, float) tuples from dataset
 
         Returns:
             PreprocessedBatch ready for model.forward()
@@ -260,13 +260,13 @@ class SchemaTransformer:
 
     def collate_fn_inference(
             self,
-            batch: List[Tuple[str, Any]]
+            batch: List[Tuple[str, Any, float]]
     ) -> PreprocessedBatch:
         """
         Collate function for inference DataLoader.
 
         Args:
-            batch: List of (text, schema) tuples
+            batch: List of (text, schema, float) tuples
 
         Returns:
             PreprocessedBatch for batch_extract
@@ -301,12 +301,12 @@ class SchemaTransformer:
 
     def _collate_batch(
             self,
-            batch: List[Tuple[str, Any]]
+            batch: List[Tuple[str, Any, float]]
     ) -> PreprocessedBatch:
         """Internal collate implementation."""
         transformed_records = []
 
-        for text, schema in batch:
+        for text, schema, loss_weight in batch:
             # Handle Schema objects
             if hasattr(schema, 'build'):
                 schema = schema.build()
@@ -319,7 +319,7 @@ class SchemaTransformer:
             elif not text:
                 text = "."
 
-            record = {"text": text, "schema": copy.deepcopy(schema)}
+            record = {"text": text, "schema": copy.deepcopy(schema), "loss_weight": loss_weight}
 
             try:
                 transformed = self._transform_record(record)
@@ -383,7 +383,7 @@ class SchemaTransformer:
             end_token_idx=end_idx_map,
             text=text,
             schema=original_schema,  # Use original schema with choice info preserved
-            loss_weight=record["loss_weight"] if "loss_weight" in record else 1
+            loss_weight=record["loss_weight"] if "loss_weight" in record else 1.0
         )
 
     def _pad_batch(
