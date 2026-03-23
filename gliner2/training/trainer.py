@@ -338,13 +338,13 @@ class ExtractorDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> Tuple[str, Dict]:
+    def __getitem__(self, idx: int) -> Tuple[str, Dict, float]:
         record = self.data[idx]
         # Handle both formats
         if "input" in record:
-            return record["input"], record["output"]
+            return record["input"], record["output"], record["loss_weight"]
         else:
-            return record["text"], record["schema"]
+            return record["text"], record["schema"], record["loss_weight"]
 
     # Factory methods for explicit creation
     @classmethod
