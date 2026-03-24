@@ -581,7 +581,7 @@ class GLiNER2(Extractor):
             metadata_list.append(metadata)
 
         # OPT-9: Skip duplicate normalization — _collate_batch handles it
-        dataset = list(zip(texts, schema_dicts))
+        dataset = list(zip(texts, schema_dicts, [1]*len(texts)))
 
         # OPT-11: Reuse cached collator instance
         if self._inference_collator is None:
