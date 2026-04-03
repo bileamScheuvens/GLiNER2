@@ -512,7 +512,8 @@ class GLiNER2(Extractor):
         num_workers: int = 0,
         format_results: bool = True,
         include_confidence: bool = False,
-        include_spans: bool = False
+        include_spans: bool = False,
+        max_len: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Extract from multiple texts with parallel preprocessing.
@@ -526,6 +527,9 @@ class GLiNER2(Extractor):
             format_results: Format output nicely
             include_confidence: Include confidence scores
             include_spans: Include character-level start/end positions
+            max_len: Maximum number of word tokens to process per text.
+                Tokens beyond this limit are silently dropped before the model
+                sees the input. ``None`` (default) means no truncation.
 
         Returns:
             List of extraction results
@@ -564,12 +568,18 @@ class GLiNER2(Extractor):
                 }
             else:
                 schema_dict = schema
+                # Normalize shorthand entity lists to dicts
+                # e.g. {'entities': ['person', 'company']} -> {'entities': {'person': '', 'company': ''}}
+                entities = schema_dict.get("entities")
+                if isinstance(entities, list):
+                    schema_dict = {**schema_dict, "entities": {e: "" for e in entities}}
                 # Extract classification task names from dict schema
                 classification_tasks = [c["task"] for c in schema_dict.get("classifications", [])]
+                entity_order = list(schema_dict["entities"].keys()) if isinstance(schema_dict.get("entities"), dict) else []
                 metadata = {
                     "field_metadata": {}, "entity_metadata": {},
                     "relation_metadata": {}, "field_orders": {},
-                    "entity_order": [], "relation_order": [],
+                    "entity_order": entity_order, "relation_order": [],
                     "classification_tasks": classification_tasks
                 }
 
@@ -583,10 +593,13 @@ class GLiNER2(Extractor):
         # OPT-9: Skip duplicate normalization — _collate_batch handles it
         dataset = list(zip(texts, schema_dicts, [1]*len(texts)))
 
-        # OPT-11: Reuse cached collator instance
-        if self._inference_collator is None:
-            self._inference_collator = ExtractorCollator(self.processor, is_training=False)
-        collator = self._inference_collator
+        # OPT-11: Reuse cached collator instance (only when max_len is not set)
+        if max_len is None:
+            if self._inference_collator is None:
+                self._inference_collator = ExtractorCollator(self.processor, is_training=False)
+            collator = self._inference_collator
+        else:
+            collator = ExtractorCollator(self.processor, is_training=False, max_len=max_len)
 
         # OPT-12: Skip DataLoader overhead for single-batch inputs
         if len(dataset) <= batch_size and num_workers == 0:
@@ -605,9 +618,10 @@ class GLiNER2(Extractor):
         all_results = []
         sample_idx = 0
         device = next(self.parameters()).device
+        dtype = next(self.parameters()).dtype
 
         for batch in batches:
-            batch = batch.to(device)
+            batch = batch.to(device, dtype if dtype != torch.float32 else None)
             batch_results = self._extract_from_batch(
                 batch, threshold, metadata_list[sample_idx:sample_idx + len(batch)],
                 include_confidence, include_spans
@@ -646,6 +660,20 @@ class GLiNER2(Extractor):
             batch
         )
 
+        # Batch span rep for all samples that need it
+        span_samples = []
+        for i in range(len(batch)):
+            has_span = any(t != "classifications" for t in batch.task_types[i])
+            if has_span and all_token_embs[i].numel() > 0:
+                span_samples.append(i)
+
+        all_span_info = [None] * len(batch)
+        if span_samples:
+            span_embs = [all_token_embs[i] for i in span_samples]
+            span_results = self.compute_span_rep_batched(span_embs)
+            for idx, si in zip(span_samples, span_results):
+                all_span_info[idx] = si
+
         results = []
 
         for i in range(len(batch)):
@@ -663,7 +691,8 @@ class GLiNER2(Extractor):
                     threshold=threshold,
                     metadata=metadata_list[i],
                     include_confidence=include_confidence,
-                    include_spans=include_spans
+                    include_spans=include_spans,
+                    span_info=all_span_info[i]
                 )
                 results.append(sample_result)
             except Exception as e:
@@ -686,16 +715,17 @@ class GLiNER2(Extractor):
         threshold: float,
         metadata: Dict,
         include_confidence: bool,
-        include_spans: bool
+        include_spans: bool,
+        span_info: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """Extract from single sample."""
         results = {}
 
-        # Compute span representations if needed
-        has_span_task = any(t != "classifications" for t in task_types)
-        span_info = None
-        if has_span_task and token_embs.numel() > 0:
-            span_info = self.compute_span_rep(token_embs)
+        # Compute span representations if needed and not pre-computed
+        if span_info is None:
+            has_span_task = any(t != "classifications" for t in task_types)
+            if has_span_task and token_embs.numel() > 0:
+                span_info = self.compute_span_rep(token_embs)
 
         # Build classification field map
         cls_fields = {}
@@ -1263,8 +1293,8 @@ class GLiNER2(Extractor):
                 for span in spans:
                     if isinstance(span, tuple):
                         text, conf, start, end = span
-                        if text and text.lower() not in seen:
-                            seen.add(text.lower())
+                        if text and (text.lower(), start, end) not in seen:
+                            seen.add((text.lower(), start, end))
                             unique.append({"text": text, "confidence": conf} if include_confidence else text)
                     elif isinstance(span, dict):
                         # Handle dict format (with confidence/spans)
@@ -1293,9 +1323,9 @@ class GLiNER2(Extractor):
                 seen = set()
                 for v in value:
                     if isinstance(v, tuple):
-                        text, conf, _, _ = v
-                        if text and text.lower() not in seen:
-                            seen.add(text.lower())
+                        text, conf, start, end = v
+                        if text and (text.lower(), start, end) not in seen:
+                            seen.add((text.lower(), start, end))
                             unique.append({"text": text, "confidence": conf} if include_confidence else text)
                     elif isinstance(v, dict):
                         # Handle dict format (with confidence/spans)
@@ -1324,27 +1354,28 @@ class GLiNER2(Extractor):
 
     def extract(self, text: str, schema, threshold: float = 0.5,
                 format_results: bool = True, include_confidence: bool = False,
-                include_spans: bool = False) -> Dict:
+                include_spans: bool = False, max_len: Optional[int] = None) -> Dict:
         """Extract from single text."""
-        return self.batch_extract([text], schema, 1, threshold, 0, format_results, include_confidence, include_spans)[0]
+        return self.batch_extract([text], schema, 1, threshold, 0, format_results, include_confidence, include_spans, max_len=max_len)[0]
 
     def extract_entities(self, text: str, entity_types, threshold: float = 0.5,
                         format_results: bool = True, include_confidence: bool = False,
-                        include_spans: bool = False) -> Dict:
+                        include_spans: bool = False, max_len: Optional[int] = None) -> Dict:
         """Extract entities from text."""
         schema = self.create_schema().entities(entity_types)
-        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans)
+        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans, max_len=max_len)
 
     def batch_extract_entities(self, texts: List[str], entity_types, batch_size: int = 8,
                                threshold: float = 0.5, format_results: bool = True,
-                               include_confidence: bool = False, include_spans: bool = False) -> List[Dict]:
+                               include_confidence: bool = False, include_spans: bool = False,
+                               max_len: Optional[int] = None) -> List[Dict]:
         """Batch extract entities."""
         schema = self.create_schema().entities(entity_types)
-        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans)
+        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans, max_len=max_len)
 
     def classify_text(self, text: str, tasks: Dict, threshold: float = 0.5,
                      format_results: bool = True, include_confidence: bool = False,
-                     include_spans: bool = False) -> Dict:
+                     include_spans: bool = False, max_len: Optional[int] = None) -> Dict:
         """Classify text."""
         schema = self.create_schema()
         for name, config in tasks.items():
@@ -1354,11 +1385,12 @@ class GLiNER2(Extractor):
                 schema.classification(name, labels, **cfg)
             else:
                 schema.classification(name, config)
-        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans)
+        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans, max_len=max_len)
 
     def batch_classify_text(self, texts: List[str], tasks: Dict, batch_size: int = 8,
                            threshold: float = 0.5, format_results: bool = True,
-                           include_confidence: bool = False, include_spans: bool = False) -> List[Dict]:
+                           include_confidence: bool = False, include_spans: bool = False,
+                           max_len: Optional[int] = None) -> List[Dict]:
         """Batch classify texts."""
         schema = self.create_schema()
         for name, config in tasks.items():
@@ -1368,11 +1400,11 @@ class GLiNER2(Extractor):
                 schema.classification(name, labels, **cfg)
             else:
                 schema.classification(name, config)
-        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans)
+        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans, max_len=max_len)
 
     def extract_json(self, text: str, structures: Dict, threshold: float = 0.5,
                     format_results: bool = True, include_confidence: bool = False,
-                    include_spans: bool = False) -> Dict:
+                    include_spans: bool = False, max_len: Optional[int] = None) -> Dict:
         """Extract structured data."""
         schema = self.create_schema()
         for parent, fields in structures.items():
@@ -1380,11 +1412,12 @@ class GLiNER2(Extractor):
             for spec in fields:
                 name, dtype, choices, desc = self._parse_field_spec(spec)
                 builder.field(name, dtype=dtype, choices=choices, description=desc)
-        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans)
+        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans, max_len=max_len)
 
     def batch_extract_json(self, texts: List[str], structures: Dict, batch_size: int = 8,
                           threshold: float = 0.5, format_results: bool = True,
-                          include_confidence: bool = False, include_spans: bool = False) -> List[Dict]:
+                          include_confidence: bool = False, include_spans: bool = False,
+                          max_len: Optional[int] = None) -> List[Dict]:
         """Batch extract structured data."""
         schema = self.create_schema()
         for parent, fields in structures.items():
@@ -1392,21 +1425,22 @@ class GLiNER2(Extractor):
             for spec in fields:
                 name, dtype, choices, desc = self._parse_field_spec(spec)
                 builder.field(name, dtype=dtype, choices=choices, description=desc)
-        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans)
+        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans, max_len=max_len)
 
     def extract_relations(self, text: str, relation_types, threshold: float = 0.5,
                          format_results: bool = True, include_confidence: bool = False,
-                         include_spans: bool = False) -> Dict:
+                         include_spans: bool = False, max_len: Optional[int] = None) -> Dict:
         """Extract relations."""
         schema = self.create_schema().relations(relation_types)
-        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans)
+        return self.extract(text, schema, threshold, format_results, include_confidence, include_spans, max_len=max_len)
 
     def batch_extract_relations(self, texts: List[str], relation_types, batch_size: int = 8,
                                threshold: float = 0.5, format_results: bool = True,
-                               include_confidence: bool = False, include_spans: bool = False) -> List[Dict]:
+                               include_confidence: bool = False, include_spans: bool = False,
+                               max_len: Optional[int] = None) -> List[Dict]:
         """Batch extract relations."""
         schema = self.create_schema().relations(relation_types)
-        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans)
+        return self.batch_extract(texts, schema, batch_size, threshold, 0, format_results, include_confidence, include_spans, max_len=max_len)
 
     def _parse_field_spec(self, spec: Union[str, Dict]) -> Tuple[str, str, Optional[List[str]], Optional[str]]:
         """Parse field specification string or dictionary.

@@ -63,14 +63,23 @@ from gliner2.processor import SchemaTransformer, SamplingConfig
 
 # Import training data classes
 from gliner2.training.data import (
-    InputExample, TrainingDataset, ValidationError,
-    DataFormat, detect_data_format, DataLoader_Factory, TrainDataInput
+    InputExample,
+    TrainingDataset,
+    ValidationError,
+    DataFormat,
+    detect_data_format,
+    DataLoader_Factory,
+    TrainDataInput,
 )
 
 # Import LoRA for parameter-efficient fine-tuning
 from gliner2.training.lora import (
-    LoRAConfig, apply_lora_to_model, get_lora_parameters,
-    merge_lora_weights, count_lora_parameters, print_lora_info
+    LoRAConfig,
+    apply_lora_to_model,
+    get_lora_parameters,
+    merge_lora_weights,
+    count_lora_parameters,
+    print_lora_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,11 +89,12 @@ logger = logging.getLogger(__name__)
 # Configuration
 # =============================================================================
 
+
 @dataclass
 class TrainingConfig:
     """
     Complete training configuration.
-    
+
     Parameters
     ----------
     output_dir : str
@@ -171,6 +181,7 @@ class TrainingConfig:
     save_adapter_only : bool
         When use_lora=True, save only adapter weights (not full model).
     """
+
     output_dir: str = "./output"
     experiment_name: str = "gliner2"
     num_epochs: int = 10
@@ -218,13 +229,22 @@ class TrainingConfig:
     max_train_samples: int = -1
     max_eval_samples: int = -1
     validate_data: bool = True
+    max_len: Optional[int] = None
 
     # LoRA Configuration (Parameter-Efficient Fine-Tuning)
     use_lora: bool = False
     lora_r: int = 16
     lora_alpha: float = 32.0
     lora_dropout: float = 0.0
-    lora_target_modules: List[str] = field(default_factory=lambda: ["encoder", "span_rep", "classifier", "count_embed", "count_pred"])
+    lora_target_modules: List[str] = field(
+        default_factory=lambda: [
+            "encoder",
+            "span_rep",
+            "classifier",
+            "count_embed",
+            "count_pred",
+        ]
+    )
     save_adapter_only: bool = True  # Only applies when use_lora=True
 
     def __post_init__(self):
@@ -234,22 +254,24 @@ class TrainingConfig:
             logger.warning("bf16 not supported, falling back to fp16")
             self.bf16 = False
             self.fp16 = True
-        
+
         # Validate logging_steps
         if self.logging_steps <= 0:
             raise ValueError(f"logging_steps must be > 0, got {self.logging_steps}")
-        
+
         # Validate batch_size
         if self.batch_size <= 0:
             raise ValueError(f"batch_size must be > 0, got {self.batch_size}")
-        
+
         if self.eval_batch_size <= 0:
             raise ValueError(f"eval_batch_size must be > 0, got {self.eval_batch_size}")
-        
+
         # Validate gradient_accumulation_steps
         if self.gradient_accumulation_steps <= 0:
-            raise ValueError(f"gradient_accumulation_steps must be > 0, got {self.gradient_accumulation_steps}")
-        
+            raise ValueError(
+                f"gradient_accumulation_steps must be > 0, got {self.gradient_accumulation_steps}"
+            )
+
         # Validate LoRA configuration
         if self.use_lora:
             if self.lora_r <= 0:
@@ -257,20 +279,24 @@ class TrainingConfig:
             if self.lora_alpha <= 0:
                 raise ValueError(f"lora_alpha must be > 0, got {self.lora_alpha}")
             if not 0 <= self.lora_dropout < 1:
-                raise ValueError(f"lora_dropout must be in [0, 1), got {self.lora_dropout}")
+                raise ValueError(
+                    f"lora_dropout must be in [0, 1), got {self.lora_dropout}"
+                )
             if not self.lora_target_modules:
-                raise ValueError("lora_target_modules cannot be empty when use_lora=True")
+                raise ValueError(
+                    "lora_target_modules cannot be empty when use_lora=True"
+                )
 
     @property
     def effective_batch_size(self) -> int:
         return self.batch_size * self.gradient_accumulation_steps
 
     def save(self, path: str):
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(asdict(self), f, indent=2)
 
     @classmethod
-    def load(cls, path: str) -> 'TrainingConfig':
+    def load(cls, path: str) -> "TrainingConfig":
         with open(path) as f:
             return cls(**json.load(f))
 
@@ -278,6 +304,7 @@ class TrainingConfig:
 # =============================================================================
 # Dataset
 # =============================================================================
+
 
 class ExtractorDataset(Dataset):
     """
@@ -288,26 +315,26 @@ class ExtractorDataset(Dataset):
     - List of InputExample objects
     - TrainingDataset object
     - List of raw dict records
-    
+
     Examples
     --------
     >>> # From JSONL
     >>> dataset = ExtractorDataset("train.jsonl")
-    
+
     >>> # From multiple JSONL files
     >>> dataset = ExtractorDataset(["train1.jsonl", "train2.jsonl"])
-    
+
     >>> # From InputExample list
     >>> dataset = ExtractorDataset(examples)
     """
 
     def __init__(
-            self,
-            data: TrainDataInput,
-            max_samples: int = -1,
-            shuffle: bool = True,
-            seed: int = 42,
-            validate: bool = False,
+        self,
+        data: TrainDataInput,
+        max_samples: int = -1,
+        shuffle: bool = True,
+        seed: int = 42,
+        validate: bool = False,
     ):
         """
         Initialize dataset from various input formats.
@@ -348,22 +375,26 @@ class ExtractorDataset(Dataset):
 
     # Factory methods for explicit creation
     @classmethod
-    def from_jsonl(cls, paths: Union[str, Path, List], **kwargs) -> 'ExtractorDataset':
+    def from_jsonl(cls, paths: Union[str, Path, List], **kwargs) -> "ExtractorDataset":
         """Create from JSONL file(s)."""
         return cls(paths, **kwargs)
 
     @classmethod
-    def from_examples(cls, examples: List[InputExample], **kwargs) -> 'ExtractorDataset':
+    def from_examples(
+        cls, examples: List[InputExample], **kwargs
+    ) -> "ExtractorDataset":
         """Create from list of InputExample."""
         return cls(examples, **kwargs)
 
     @classmethod
-    def from_training_dataset(cls, dataset: TrainingDataset, **kwargs) -> 'ExtractorDataset':
+    def from_training_dataset(
+        cls, dataset: TrainingDataset, **kwargs
+    ) -> "ExtractorDataset":
         """Create from TrainingDataset."""
         return cls(dataset, **kwargs)
 
     @classmethod
-    def from_dicts(cls, dicts: List[Dict], **kwargs) -> 'ExtractorDataset':
+    def from_dicts(cls, dicts: List[Dict], **kwargs) -> "ExtractorDataset":
         """Create from list of dicts."""
         return cls(dicts, **kwargs)
 
@@ -372,36 +403,44 @@ class ExtractorDataset(Dataset):
 # Collator
 # =============================================================================
 
+
 class ExtractorCollator:
     """Data collator that converts raw records to model inputs."""
 
-    def __init__(self, processor: SchemaTransformer, is_training: bool = True):
+    def __init__(
+        self, processor: SchemaTransformer, is_training: bool = True, max_len=None
+    ):
         self.processor = processor
         self.is_training = is_training
+        self.max_len = max_len
 
     def __call__(self, batch: List[Tuple[str, Dict, float]]):
         """
         Convert batch of (text, schema) tuples to PreprocessedBatch.
-        
+
         Args:
             batch: List of (text, schema, loss_weight) tuples from dataset
-            
+
+            batch: List of (text, schema) tuples from dataset
+
         Returns:
             PreprocessedBatch ready for model.forward()
         """
         if self.is_training:
-            return self.processor.collate_fn_train(batch)
+            return self.processor.collate_fn_train(batch, max_len=self.max_len)
         else:
-            return self.processor.collate_fn_inference(batch)
+            return self.processor.collate_fn_inference(batch, max_len=self.max_len)
 
 
 # =============================================================================
 # Metrics
 # =============================================================================
 
+
 @dataclass
 class TrainingMetrics:
     """Container for training metrics."""
+
     loss: float = 0.0
     classification_loss: float = 0.0
     structure_loss: float = 0.0
@@ -420,24 +459,38 @@ class TrainingMetrics:
 # Scheduler Factory
 # =============================================================================
 
-def get_scheduler(optimizer, scheduler_type, num_training_steps, num_warmup_steps, num_cycles=0.5):
+
+def get_scheduler(
+    optimizer, scheduler_type, num_training_steps, num_warmup_steps, num_cycles=0.5
+):
     """Create learning rate scheduler."""
+
     def lr_lambda_linear(step):
         if step < num_warmup_steps:
             return float(step) / float(max(1, num_warmup_steps))
-        return max(0.0, float(num_training_steps - step) / float(max(1, num_training_steps - num_warmup_steps)))
+        return max(
+            0.0,
+            float(num_training_steps - step)
+            / float(max(1, num_training_steps - num_warmup_steps)),
+        )
 
     def lr_lambda_cosine(step):
         if step < num_warmup_steps:
             return float(step) / float(max(1, num_warmup_steps))
-        progress = float(step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+        progress = float(step - num_warmup_steps) / float(
+            max(1, num_training_steps - num_warmup_steps)
+        )
         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
     def lr_lambda_cosine_restarts(step):
         if step < num_warmup_steps:
             return float(step) / float(max(1, num_warmup_steps))
-        progress = float(step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
-        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * ((num_cycles * progress) % 1.0))))
+        progress = float(step - num_warmup_steps) / float(
+            max(1, num_training_steps - num_warmup_steps)
+        )
+        return max(
+            0.0, 0.5 * (1.0 + math.cos(math.pi * ((num_cycles * progress) % 1.0)))
+        )
 
     def lr_lambda_constant(step):
         if step < num_warmup_steps:
@@ -460,6 +513,7 @@ def get_scheduler(optimizer, scheduler_type, num_training_steps, num_warmup_step
 # =============================================================================
 # Main Trainer
 # =============================================================================
+
 
 class GLiNER2Trainer:
     """
@@ -507,20 +561,22 @@ class GLiNER2Trainer:
     """
 
     def __init__(
-            self,
-            model: nn.Module,
-            config: TrainingConfig,
-            processor: SchemaTransformer = None,
-            train_data: TrainDataInput = None,
-            eval_data: TrainDataInput = None,
-            compute_metrics: Optional[Callable] = None,
-            wandb_run = None,
+        self,
+        model: nn.Module,
+        config: TrainingConfig,
+        processor: SchemaTransformer = None,
+        train_data: TrainDataInput = None,
+        eval_data: TrainDataInput = None,
+        compute_metrics: Optional[Callable] = None,
+        wandb_run=None,
     ):
         self.model = model
         self.config = config
-        self.processor = processor or getattr(model, 'processor', None)
+        self.processor = processor or getattr(model, "processor", None)
         if self.processor is None:
-            raise ValueError("Processor must be provided or model must have .processor attribute")
+            raise ValueError(
+                "Processor must be provided or model must have .processor attribute"
+            )
 
         self.train_data = train_data
         self.eval_data = eval_data
@@ -533,7 +589,9 @@ class GLiNER2Trainer:
 
         self.global_step = 0
         self.epoch = 0
-        self.best_metric = float('inf') if not config.greater_is_better else float('-inf')
+        self.best_metric = (
+            float("inf") if not config.greater_is_better else float("-inf")
+        )
         self.patience_counter = 0
         self.train_metrics_history = []
         self.eval_metrics_history = []
@@ -543,7 +601,7 @@ class GLiNER2Trainer:
         self.scaler = None
         self.wandb_run = wandb_run if wandb_run else None
         self.progress_bar = None
-        
+
         # LoRA state
         self.lora_layers = {}
         self._setup_lora()
@@ -592,16 +650,18 @@ class GLiNER2Trainer:
             datefmt="%Y-%m-%d %H:%M:%S",
             level=logging.INFO if self.is_main_process else logging.WARNING,
         )
-        
+
         # W&B setup (HuggingFace style)
         self.wandb_run = None
         if self.config.report_to_wandb and self.is_main_process:
             try:
                 import wandb
+
                 self.wandb_run = wandb.init(
                     project=self.config.wandb_project or self.config.experiment_name,
                     entity=self.config.wandb_entity,
-                    name=self.config.wandb_run_name or f"{self.config.experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    name=self.config.wandb_run_name
+                    or f"{self.config.experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                     config=asdict(self.config),
                     tags=self.config.wandb_tags,
                     notes=self.config.wandb_notes,
@@ -617,14 +677,14 @@ class GLiNER2Trainer:
         if not self.config.use_lora:
             logger.info("LoRA is disabled")
             return
-        
+
         logger.info("Setting up LoRA for parameter-efficient fine-tuning...")
-        
+
         # Freeze ALL model parameters BEFORE applying LoRA
         for param in self.model.parameters():
             param.requires_grad = False
         logger.info("Froze all model parameters for LoRA training")
-        
+
         # Create LoRA config
         lora_config = LoRAConfig(
             enabled=True,
@@ -633,7 +693,7 @@ class GLiNER2Trainer:
             dropout=self.config.lora_dropout,
             target_modules=self.config.lora_target_modules,
         )
-        
+
         # Apply LoRA (encoder: targeted modules, non-encoder: all linear layers)
         # LoRA layers' lora_A and lora_B are nn.Parameter created after freezing,
         # so they have requires_grad=True by default - only these get trained
@@ -641,14 +701,14 @@ class GLiNER2Trainer:
             model=self.model,
             config=lora_config,
         )
-        
+
         # Sync model's _lora_layers attribute
         self.model._lora_layers = self.lora_layers
-        
+
         # Print LoRA information
         if self.is_main_process:
             print_lora_info(self.model, lora_config)
-        
+
         # Log parameter counts
         lora_params, total_params, percentage = count_lora_parameters(self.model)
         logger.info(
@@ -661,18 +721,24 @@ class GLiNER2Trainer:
         return self.config.local_rank <= 0
 
     @staticmethod
-    def _safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
+    def _safe_divide(
+        numerator: float, denominator: float, default: float = 0.0
+    ) -> float:
         """Safely divide two numbers, returning default if denominator is zero."""
         if denominator == 0:
             return default
         return numerator / denominator
-    
-    def _validate_training_setup(self, train_dataset: ExtractorDataset, eval_dataset: Optional[ExtractorDataset]):
+
+    def _validate_training_setup(
+        self, train_dataset: ExtractorDataset, eval_dataset: Optional[ExtractorDataset]
+    ):
         """Validate training setup and raise informative errors for edge cases."""
         # Check if dataset is empty
         if len(train_dataset) == 0:
-            raise ValueError("Training dataset is empty. Please provide at least one training example.")
-        
+            raise ValueError(
+                "Training dataset is empty. Please provide at least one training example."
+            )
+
         # Check if dataset is smaller than batch size
         if len(train_dataset) < self.config.batch_size:
             logger.warning(
@@ -680,7 +746,7 @@ class GLiNER2Trainer:
                 f"({self.config.batch_size}). Adjusting batch_size to {len(train_dataset)}."
             )
             # We'll handle this in _create_dataloader by adjusting drop_last
-        
+
         # Check early stopping configuration
         if self.config.early_stopping:
             if eval_dataset is None:
@@ -689,15 +755,17 @@ class GLiNER2Trainer:
                     "Please provide eval_data or disable early_stopping."
                 )
             if len(eval_dataset) == 0:
-                raise ValueError("Evaluation dataset is empty but early_stopping is enabled.")
-        
+                raise ValueError(
+                    "Evaluation dataset is empty but early_stopping is enabled."
+                )
+
         # Check eval strategy configuration
         if self.config.eval_strategy == "steps" and eval_dataset is None:
             logger.warning(
                 "eval_strategy='steps' but no eval_data provided. "
                 "Evaluation will be skipped."
             )
-        
+
         # Warn about very small datasets
         if len(train_dataset) < self.config.gradient_accumulation_steps:
             logger.warning(
@@ -705,7 +773,7 @@ class GLiNER2Trainer:
                 f"gradient_accumulation_steps ({self.config.gradient_accumulation_steps}). "
                 f"Training may not work as expected."
             )
-    
+
     def _flush_gradients(self) -> Optional[float]:
         """Flush accumulated gradients at the end of epoch if incomplete cycle exists."""
         # Check if there are accumulated gradients
@@ -714,30 +782,36 @@ class GLiNER2Trainer:
             if param.grad is not None and param.grad.abs().sum() > 0:
                 has_gradients = True
                 break
-        
+
         if not has_gradients:
             return None
-        
+
         # Apply the accumulated gradients
         if self.config.fp16:
             self.scaler.unscale_(self.optimizer)
-        
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
-        
+
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            self.model.parameters(), self.config.max_grad_norm
+        )
+
         if self.config.fp16:
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
             self.optimizer.step()
-        
+
         self.scheduler.step()
         self.optimizer.zero_grad()
         self.global_step += 1
-        
-        logger.info(f"Flushed incomplete gradient accumulation cycle at end of epoch (grad_norm: {grad_norm:.2f})")
+
+        logger.info(
+            f"Flushed incomplete gradient accumulation cycle at end of epoch (grad_norm: {grad_norm:.2f})"
+        )
         return grad_norm
 
-    def _prepare_data(self, data: TrainDataInput, is_train: bool = True) -> ExtractorDataset:
+    def _prepare_data(
+        self, data: TrainDataInput, is_train: bool = True
+    ) -> ExtractorDataset:
         """Convert any supported data format to ExtractorDataset."""
         if data is None:
             return None
@@ -745,30 +819,40 @@ class GLiNER2Trainer:
         if isinstance(data, ExtractorDataset):
             return data
 
-        max_samples = self.config.max_train_samples if is_train else self.config.max_eval_samples
+        max_samples = (
+            self.config.max_train_samples if is_train else self.config.max_eval_samples
+        )
 
         return ExtractorDataset(
             data=data,
             max_samples=max_samples,
             shuffle=is_train,
             seed=self.config.seed,
-            validate=self.config.validate_data if is_train else False
+            validate=self.config.validate_data if is_train else False,
         )
 
     def _create_optimizer(self) -> AdamW:
         """Create optimizer with appropriate parameters based on LoRA configuration."""
-        
+
         if self.config.use_lora:
             # When using LoRA: ONLY train LoRA parameters (everything else is frozen)
             lora_params = get_lora_parameters(self.model)
-            
+
             if not lora_params:
                 raise ValueError("No LoRA parameters found. Check LoRA configuration.")
-            
-            logger.info(f"Optimizer: LoRA params only = {len(lora_params)}, LR={self.config.task_lr}")
-            
+
+            logger.info(
+                f"Optimizer: LoRA params only = {len(lora_params)}, LR={self.config.task_lr}"
+            )
+
             return AdamW(
-                [{"params": lora_params, "lr": self.config.task_lr, "weight_decay": self.config.weight_decay}],
+                [
+                    {
+                        "params": lora_params,
+                        "lr": self.config.task_lr,
+                        "weight_decay": self.config.weight_decay,
+                    }
+                ],
                 betas=(self.config.adam_beta1, self.config.adam_beta2),
                 eps=self.config.adam_epsilon,
             )
@@ -786,28 +870,47 @@ class GLiNER2Trainer:
 
             return AdamW(
                 [
-                    {"params": encoder_params, "lr": self.config.encoder_lr, "weight_decay": self.config.weight_decay},
-                    {"params": task_params, "lr": self.config.task_lr, "weight_decay": self.config.weight_decay},
+                    {
+                        "params": encoder_params,
+                        "lr": self.config.encoder_lr,
+                        "weight_decay": self.config.weight_decay,
+                    },
+                    {
+                        "params": task_params,
+                        "lr": self.config.task_lr,
+                        "weight_decay": self.config.weight_decay,
+                    },
                 ],
                 betas=(self.config.adam_beta1, self.config.adam_beta2),
                 eps=self.config.adam_epsilon,
             )
 
-    def _create_dataloader(self, dataset: ExtractorDataset, batch_size: int, shuffle: bool = True, is_training: bool = True) -> DataLoader:
+    def _create_dataloader(
+        self,
+        dataset: ExtractorDataset,
+        batch_size: int,
+        shuffle: bool = True,
+        is_training: bool = True,
+    ) -> DataLoader:
         sampler = None
         if self.is_distributed:
             sampler = DistributedSampler(dataset, shuffle=shuffle)
             shuffle = False
 
-        collator = ExtractorCollator(self.processor, is_training=is_training)
-        
+        max_len = self.config.max_len or getattr(self.model.config, "max_len", None)
+        collator = ExtractorCollator(
+            self.processor, is_training=is_training, max_len=max_len
+        )
+
         # Fix Bug #1 & #9: Handle small datasets
         # If dataset is smaller than batch_size, adjust to prevent empty dataloader
         effective_batch_size = min(batch_size, len(dataset))
         drop_last = is_training and len(dataset) > batch_size
-        
+
         # Adjust num_workers for small datasets
-        effective_num_workers = self.config.num_workers if len(dataset) > self.config.num_workers else 0
+        effective_num_workers = (
+            self.config.num_workers if len(dataset) > self.config.num_workers else 0
+        )
 
         return DataLoader(
             dataset,
@@ -816,16 +919,18 @@ class GLiNER2Trainer:
             sampler=sampler,
             num_workers=effective_num_workers,
             pin_memory=self.config.pin_memory,
-            prefetch_factor=self.config.prefetch_factor if effective_num_workers > 0 else None,
+            prefetch_factor=self.config.prefetch_factor
+            if effective_num_workers > 0
+            else None,
             collate_fn=collator,
             drop_last=drop_last,
             persistent_workers=effective_num_workers > 0,
         )
 
     def train(
-            self,
-            train_data: TrainDataInput = None,
-            eval_data: TrainDataInput = None,
+        self,
+        train_data: TrainDataInput = None,
+        eval_data: TrainDataInput = None,
     ) -> Dict[str, Any]:
         """
         Main training loop.
@@ -856,12 +961,16 @@ class GLiNER2Trainer:
             raise ValueError("No training data provided")
 
         train_dataset = self._prepare_data(train_data, is_train=True)
-        eval_dataset = self._prepare_data(eval_data, is_train=False) if eval_data else None
+        eval_dataset = (
+            self._prepare_data(eval_data, is_train=False) if eval_data else None
+        )
 
         # Fix Bug #7: Validate training setup
         self._validate_training_setup(train_dataset, eval_dataset)
 
-        train_loader = self._create_dataloader(train_dataset, self.config.batch_size, shuffle=True, is_training=True)
+        train_loader = self._create_dataloader(
+            train_dataset, self.config.batch_size, shuffle=True, is_training=True
+        )
 
         # Fix Bug #1: Check if dataloader is empty
         if len(train_loader) == 0:
@@ -871,8 +980,10 @@ class GLiNER2Trainer:
             )
 
         # Calculate steps
-        num_update_steps_per_epoch = len(train_loader) // self.config.gradient_accumulation_steps
-        
+        num_update_steps_per_epoch = (
+            len(train_loader) // self.config.gradient_accumulation_steps
+        )
+
         # Fix Bug #1: Handle case where num_update_steps_per_epoch is 0
         if num_update_steps_per_epoch == 0:
             # If gradient accumulation is larger than dataloader, we have at least the batches we can process
@@ -881,7 +992,7 @@ class GLiNER2Trainer:
                 f"gradient_accumulation_steps ({self.config.gradient_accumulation_steps}) is larger than "
                 f"batches per epoch ({len(train_loader)}). Setting to 1 update step per epoch."
             )
-        
+
         if self.config.max_steps > 0:
             max_steps = self.config.max_steps
             num_epochs = math.ceil(max_steps / num_update_steps_per_epoch)
@@ -889,11 +1000,19 @@ class GLiNER2Trainer:
             max_steps = num_update_steps_per_epoch * self.config.num_epochs
             num_epochs = self.config.num_epochs
 
-        warmup_steps = self.config.warmup_steps or int(max_steps * self.config.warmup_ratio)
+        warmup_steps = self.config.warmup_steps or int(
+            max_steps * self.config.warmup_ratio
+        )
 
         # Create optimizer and scheduler
         self.optimizer = self._create_optimizer()
-        self.scheduler = get_scheduler(self.optimizer, self.config.scheduler_type, max_steps, warmup_steps, self.config.num_cycles)
+        self.scheduler = get_scheduler(
+            self.optimizer,
+            self.config.scheduler_type,
+            max_steps,
+            warmup_steps,
+            self.config.num_cycles,
+        )
 
         # Mixed precision
         use_amp = self.config.fp16 or self.config.bf16
@@ -905,20 +1024,30 @@ class GLiNER2Trainer:
         logger.info(f"  Num examples = {len(train_dataset)}")
         logger.info(f"  Num epochs = {num_epochs}")
         logger.info(f"  Batch size = {self.config.batch_size}")
-        logger.info(f"  Gradient accumulation steps = {self.config.gradient_accumulation_steps}")
+        logger.info(
+            f"  Gradient accumulation steps = {self.config.gradient_accumulation_steps}"
+        )
         logger.info(f"  Effective batch size = {self.config.effective_batch_size}")
         logger.info(f"  Total optimization steps = {max_steps}")
         logger.info(f"  Warmup steps = {warmup_steps}")
-        
+
         # Log trainable parameters
         if self.config.use_lora:
             lora_params, total_params, percentage = count_lora_parameters(self.model)
-            logger.info(f"  LoRA enabled: {lora_params:,} trainable / {total_params:,} total ({percentage:.2f}%)")
+            logger.info(
+                f"  LoRA enabled: {lora_params:,} trainable / {total_params:,} total ({percentage:.2f}%)"
+            )
         else:
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            trainable_params = sum(
+                p.numel() for p in self.model.parameters() if p.requires_grad
+            )
             total_params = sum(p.numel() for p in self.model.parameters())
-            percentage = (trainable_params / total_params * 100) if total_params > 0 else 0.0
-            logger.info(f"  Trainable parameters: {trainable_params:,} / {total_params:,} ({percentage:.2f}%)")
+            percentage = (
+                (trainable_params / total_params * 100) if total_params > 0 else 0.0
+            )
+            logger.info(
+                f"  Trainable parameters: {trainable_params:,} / {total_params:,} ({percentage:.2f}%)"
+            )
 
         # Training state
         self.model.train()
@@ -930,8 +1059,11 @@ class GLiNER2Trainer:
         start_time = time.time()
         samples_seen = 0
 
-        self.progress_bar = tqdm(total=max_steps, desc="Training", disable=not self.is_main_process)
+        self.progress_bar = tqdm(
+            total=max_steps, desc="Training", disable=not self.is_main_process
+        )
 
+        should_stop = False
         for epoch in range(num_epochs):
             self.epoch = epoch
 
@@ -983,7 +1115,9 @@ class GLiNER2Trainer:
                     if self.config.fp16:
                         self.scaler.unscale_(self.optimizer)
 
-                    grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.config.max_grad_norm
+                    )
 
                     if self.config.fp16:
                         self.scaler.step(self.optimizer)
@@ -998,40 +1132,70 @@ class GLiNER2Trainer:
                     if self.global_step % self.config.logging_steps == 0:
                         elapsed = time.time() - start_time
                         # Fix Bug #2: Safe division for metrics
-                        avg_loss = self._safe_divide(tr_loss, self.config.logging_steps, default=tr_loss)
+                        avg_loss = self._safe_divide(
+                            tr_loss, self.config.logging_steps, default=tr_loss
+                        )
                         # Fix Bug #5: Safe division for epoch progress
-                        epoch_progress = self._safe_divide(step, len(train_loader), default=0.0)
+                        epoch_progress = self._safe_divide(
+                            step, len(train_loader), default=0.0
+                        )
                         metrics = TrainingMetrics(
                             loss=avg_loss,
-                            classification_loss=outputs.get("classification_loss", torch.tensor(0)).item(),
-                            structure_loss=outputs.get("structure_loss", torch.tensor(0)).item(),
-                            count_loss=outputs.get("count_loss", torch.tensor(0)).item(),
+                            classification_loss=outputs.get(
+                                "classification_loss", torch.tensor(0)
+                            ).item(),
+                            structure_loss=outputs.get(
+                                "structure_loss", torch.tensor(0)
+                            ).item(),
+                            count_loss=outputs.get(
+                                "count_loss", torch.tensor(0)
+                            ).item(),
                             learning_rate=self.scheduler.get_last_lr()[0],
                             epoch=epoch + epoch_progress,
                             step=self.global_step,
                             samples_seen=samples_seen,
-                            throughput=self._safe_divide(samples_seen, elapsed, default=0.0),
+                            throughput=self._safe_divide(
+                                samples_seen, elapsed, default=0.0
+                            ),
                         )
                         self._log_metrics(metrics, prefix="train")
                         tr_loss = 0.0
 
-                    if self.config.eval_strategy == "steps" and self.global_step % self.config.eval_steps == 0:
+                    if (
+                        self.config.eval_strategy == "steps"
+                        and self.global_step % self.config.eval_steps == 0
+                    ):
                         if eval_dataset:
-                            self._evaluate(eval_dataset)
+                            prev_best = self.best_metric
+                            eval_metrics = self._evaluate(eval_dataset)
                             self.model.train()
                             self.processor.change_mode(is_training=True)
+                            if (
+                                self.config.early_stopping
+                                and self._check_early_stopping(eval_metrics, prev_best)
+                            ):
+                                logger.info(
+                                    f"Early stopping triggered at step {self.global_step}"
+                                )
+                                should_stop = True
+                                break
                         self._save_checkpoint(f"checkpoint-{self.global_step}")
 
                     self.progress_bar.update(1)
 
                     if self.global_step >= max_steps:
                         break
-            
+
+            if should_stop:
+                break
+
             # Fix Bug #6: Flush incomplete gradient accumulation at end of epoch
             if epoch_steps % self.config.gradient_accumulation_steps != 0:
                 grad_norm = self._flush_gradients()
                 if grad_norm is not None:
-                    logger.info(f"Applied incomplete gradient accumulation at end of epoch {epoch + 1}")
+                    logger.info(
+                        f"Applied incomplete gradient accumulation at end of epoch {epoch + 1}"
+                    )
 
             # Fix Bug #3: Safe division for epoch loss
             avg_epoch_loss = self._safe_divide(epoch_loss, epoch_steps, default=0.0)
@@ -1039,10 +1203,13 @@ class GLiNER2Trainer:
 
             if self.config.eval_strategy == "epoch":
                 if eval_dataset:
+                    prev_best = self.best_metric
                     eval_metrics = self._evaluate(eval_dataset)
                     self.model.train()
                     self.processor.change_mode(is_training=True)
-                    if self.config.early_stopping and self._check_early_stopping(eval_metrics):
+                    if self.config.early_stopping and self._check_early_stopping(
+                        eval_metrics, prev_best
+                    ):
                         logger.info(f"Early stopping triggered at epoch {epoch + 1}")
                         break
                 self._save_checkpoint(f"checkpoint-epoch-{epoch + 1}")
@@ -1057,6 +1224,7 @@ class GLiNER2Trainer:
             self._save_checkpoint("final")
             if self.config.report_to_wandb:
                 import wandb
+
                 wandb.summary["best_metric"] = self.best_metric
                 wandb.summary["total_steps"] = self.global_step
                 wandb.finish()
@@ -1077,7 +1245,9 @@ class GLiNER2Trainer:
         self.model.eval()
         self.processor.change_mode(is_training=False)
 
-        eval_loader = self._create_dataloader(eval_dataset, self.config.eval_batch_size, shuffle=False, is_training=False)
+        eval_loader = self._create_dataloader(
+            eval_dataset, self.config.eval_batch_size, shuffle=False, is_training=False
+        )
 
         # Fix Bug #4: Check if eval dataloader is empty
         if len(eval_loader) == 0:
@@ -1104,23 +1274,40 @@ class GLiNER2Trainer:
         amp_dtype = torch.bfloat16 if self.config.bf16 else torch.float16
 
         with torch.no_grad():
-            for batch in tqdm(eval_loader, desc="Evaluating", disable=not self.is_main_process):
+            for batch in tqdm(
+                eval_loader, desc="Evaluating", disable=not self.is_main_process
+            ):
                 with autocast(enabled=use_amp, dtype=amp_dtype):
                     outputs = self.model(batch)
 
                 # Fix Bug #10: Move tensors to CPU to prevent memory leak
                 total_loss += outputs["total_loss"].detach().cpu().item()
-                total_cls_loss += outputs.get("classification_loss", torch.tensor(0)).detach().cpu().item()
-                total_struct_loss += outputs.get("structure_loss", torch.tensor(0)).detach().cpu().item()
-                total_count_loss += outputs.get("count_loss", torch.tensor(0)).detach().cpu().item()
+                total_cls_loss += (
+                    outputs.get("classification_loss", torch.tensor(0))
+                    .detach()
+                    .cpu()
+                    .item()
+                )
+                total_struct_loss += (
+                    outputs.get("structure_loss", torch.tensor(0)).detach().cpu().item()
+                )
+                total_count_loss += (
+                    outputs.get("count_loss", torch.tensor(0)).detach().cpu().item()
+                )
                 num_batches += 1
 
         # Fix Bug #4: Safe division for evaluation metrics
         metrics = {
             "eval_loss": self._safe_divide(total_loss, num_batches, default=0.0),
-            "eval_classification_loss": self._safe_divide(total_cls_loss, num_batches, default=0.0),
-            "eval_structure_loss": self._safe_divide(total_struct_loss, num_batches, default=0.0),
-            "eval_count_loss": self._safe_divide(total_count_loss, num_batches, default=0.0),
+            "eval_classification_loss": self._safe_divide(
+                total_cls_loss, num_batches, default=0.0
+            ),
+            "eval_structure_loss": self._safe_divide(
+                total_struct_loss, num_batches, default=0.0
+            ),
+            "eval_count_loss": self._safe_divide(
+                total_count_loss, num_batches, default=0.0
+            ),
             "step": self.global_step,
             "epoch": self.epoch,
         }
@@ -1133,24 +1320,32 @@ class GLiNER2Trainer:
 
         metric_value = metrics.get(self.config.metric_for_best, metrics["eval_loss"])
         is_best = (
-            (self.config.greater_is_better and metric_value > self.best_metric) or
-            (not self.config.greater_is_better and metric_value < self.best_metric)
-        )
+            self.config.greater_is_better and metric_value > self.best_metric
+        ) or (not self.config.greater_is_better and metric_value < self.best_metric)
 
         if is_best:
             self.best_metric = metric_value
             if self.config.save_best:
                 self._save_checkpoint("best")
-            logger.info(f"New best {self.config.metric_for_best}: {self.best_metric:.4f}")
+            logger.info(
+                f"New best {self.config.metric_for_best}: {self.best_metric:.4f}"
+            )
 
         return metrics
 
-    def _check_early_stopping(self, metrics: Dict[str, float]) -> bool:
+    def _check_early_stopping(
+        self, metrics: Dict[str, float], prev_best: Optional[float] = None
+    ) -> bool:
         metric_value = metrics.get(self.config.metric_for_best, metrics["eval_loss"])
+        compare_against = prev_best if prev_best is not None else self.best_metric
         if self.config.greater_is_better:
-            improved = metric_value > self.best_metric + self.config.early_stopping_threshold
+            improved = (
+                metric_value > compare_against + self.config.early_stopping_threshold
+            )
         else:
-            improved = metric_value < self.best_metric - self.config.early_stopping_threshold
+            improved = (
+                metric_value < compare_against - self.config.early_stopping_threshold
+            )
 
         if improved:
             self.patience_counter = 0
@@ -1163,7 +1358,7 @@ class GLiNER2Trainer:
         """Log metrics with safe handling of edge cases."""
         if isinstance(metrics, TrainingMetrics):
             metrics = metrics.to_dict()
-        
+
         # Handle empty metrics gracefully
         if not metrics:
             logger.warning("Attempted to log empty metrics")
@@ -1185,11 +1380,11 @@ class GLiNER2Trainer:
                             postfix["samples/s"] = f"{value:.1f}"
                         else:
                             postfix[key] = f"{value:.4f}"
-            
+
             # Add epoch info if available
             if "epoch" in metrics:
                 postfix["epoch"] = f"{metrics['epoch']:.1f}"
-            
+
             if postfix:
                 self.progress_bar.set_postfix(postfix)
 
@@ -1197,11 +1392,13 @@ class GLiNER2Trainer:
         if self.config.report_to_wandb and self.is_main_process:
             try:
                 import wandb
+
                 # Filter out NaN and Inf values for wandb
                 wandb_metrics = {
                     k: v
                     for k, v in metrics.items()
-                    if isinstance(v, (int, float)) and not (math.isnan(v) or math.isinf(v))
+                    if isinstance(v, (int, float))
+                    and not (math.isnan(v) or math.isinf(v))
                 }
                 if wandb_metrics:
                     wandb.log(wandb_metrics, step=self.global_step)
@@ -1217,15 +1414,18 @@ class GLiNER2Trainer:
 
         checkpoint_dir = self.output_dir / name
         checkpoint_dir.mkdir(exist_ok=True)
-        
+
         save_start = time.time()
-        
+
         # Handle adapter-only saves when using LoRA
         if self.config.use_lora and self.config.save_adapter_only:
             from gliner2.training.lora import save_lora_adapter
+
             save_lora_adapter(self.model, checkpoint_dir)
             checkpoint_type = "adapter"
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            trainable_params = sum(
+                p.numel() for p in self.model.parameters() if p.requires_grad
+            )
         else:
             # Full model save: merge LoRA weights if present
             lora_was_merged = False
@@ -1234,15 +1434,16 @@ class GLiNER2Trainer:
                 if not first_lora_layer.merged:
                     num_merged = merge_lora_weights(self.model)
                     lora_was_merged = True
-            
+
             # Save the model (with merged weights if LoRA was used)
             self.model.save_pretrained(str(checkpoint_dir))
-            
+
             # Unmerge weights after saving to continue training with LoRA
             if lora_was_merged:
                 from gliner2.training.lora import unmerge_lora_weights
+
                 unmerge_lora_weights(self.model)
-            
+
             # Save LoRA configuration if used
             if self.config.use_lora:
                 lora_config_dict = {
@@ -1254,15 +1455,18 @@ class GLiNER2Trainer:
                     "merged": True,
                 }
                 import json
+
                 with open(checkpoint_dir / "lora_config.json", "w") as f:
                     json.dump(lora_config_dict, f, indent=2)
-            
+
             checkpoint_type = "full"
             trainable_params = sum(p.numel() for p in self.model.parameters())
-        
+
         save_time = time.time() - save_start
-        checkpoint_size_mb = sum(f.stat().st_size for f in checkpoint_dir.rglob('*') if f.is_file()) / (1024 * 1024)
-        
+        checkpoint_size_mb = sum(
+            f.stat().st_size for f in checkpoint_dir.rglob("*") if f.is_file()
+        ) / (1024 * 1024)
+
         # World-class logging
         logger.info(
             f"💾 Saved {checkpoint_type} checkpoint '{name}' | "
@@ -1274,6 +1478,7 @@ class GLiNER2Trainer:
         if self.config.report_to_wandb and name in ["best", "final"]:
             try:
                 import wandb
+
                 artifact = wandb.Artifact(
                     name=f"model-{self.config.experiment_name}-{name}",
                     type="model",
@@ -1283,7 +1488,7 @@ class GLiNER2Trainer:
                         "checkpoint_type": checkpoint_type,
                         "params": trainable_params,
                         "size_mb": checkpoint_size_mb,
-                    }
+                    },
                 )
                 artifact.add_dir(str(checkpoint_dir))
                 wandb.log_artifact(artifact)
@@ -1297,7 +1502,11 @@ class GLiNER2Trainer:
             return
 
         checkpoints = sorted(
-            [d for d in self.output_dir.iterdir() if d.is_dir() and d.name.startswith("checkpoint-")],
+            [
+                d
+                for d in self.output_dir.iterdir()
+                if d.is_dir() and d.name.startswith("checkpoint-")
+            ],
             key=lambda x: x.stat().st_mtime,
         )
         protected = {"best", "final"}
@@ -1311,14 +1520,14 @@ class GLiNER2Trainer:
     def load_checkpoint(self, checkpoint_path: str):
         """
         Load model weights from a checkpoint.
-        
+
         Handles both adapter-only and full checkpoints.
         Note: Training always starts fresh (no optimizer/scheduler state loaded).
         """
         from gliner2.training.lora import LoRAAdapterConfig
-        
+
         checkpoint_dir = Path(checkpoint_path)
-        
+
         if LoRAAdapterConfig.is_adapter_path(checkpoint_path):
             # Adapter checkpoint - load adapter onto existing model
             logger.info(f"Loading LoRA adapter from {checkpoint_path}")
@@ -1329,23 +1538,24 @@ class GLiNER2Trainer:
             lora_config_path = checkpoint_dir / "lora_config.json"
             if lora_config_path.exists():
                 import json
+
                 with open(lora_config_path) as f:
                     lora_config = json.load(f)
                 logger.info(
                     f"Checkpoint has LoRA config (r={lora_config.get('lora_r')}, "
                     f"alpha={lora_config.get('lora_alpha')}, merged weights)"
                 )
-            
+
             # Load model (with merged weights if it was trained with LoRA)
             self.model = self.model.__class__.from_pretrained(str(checkpoint_dir))
             self.model.to(self.device)
-            
+
             # Re-apply LoRA if enabled in current config
             if self.config.use_lora:
                 logger.info("Applying LoRA to loaded model...")
                 self.lora_layers = {}
                 self._setup_lora()
-        
+
         logger.info(f"✓ Loaded checkpoint: {checkpoint_path}")
 
 
@@ -1353,12 +1563,13 @@ class GLiNER2Trainer:
 # Convenience Functions
 # =============================================================================
 
+
 def train_gliner2(
-        model_path: str,
-        train_data: TrainDataInput,
-        output_dir: str = "./output",
-        eval_data: TrainDataInput = None,
-        **config_kwargs,
+    model_path: str,
+    train_data: TrainDataInput,
+    output_dir: str = "./output",
+    eval_data: TrainDataInput = None,
+    **config_kwargs,
 ) -> Dict[str, Any]:
     """
     Convenience function for training GLiNER2.
